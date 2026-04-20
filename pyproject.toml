@@ -1,6 +1,98 @@
 [build-system]
-requires = ["setuptools", "wheel", "setuptools_scm"]
+requires = ["setuptools>=64", "setuptools_scm>=7"]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "cellpose-napari"
+description = "a generalist algorithm for anatomical segmentation"
+readme = "README.md"
+license = { text = "BSD-3-Clause" }
+authors = [{ name = "Carsen Stringer", email = "stringerc@janelia.hhmi.org" }]
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: BSD License",
+    "Framework :: napari",
+]
+dependencies = [
+    "napari",
+    "magicgui",
+    "cellpose>0.6.3",
+    "imagecodecs",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/Mouseland/cellpose-napari"
+
+[project.optional-dependencies]
+docs = [
+    "sphinx>=3.0",
+    "sphinxcontrib-apidoc",
+    "sphinx_rtd_theme",
+    "sphinx-prompt",
+    "sphinx-autodoc-typehints",
+]
+testing = [
+    "tox",
+    "pytest",
+    "pytest-cov",
+    "pytest-qt",
+    "napari",
+    "pyqt5",
+]
+
+[project.entry-points."napari.manifest"]
+cellpose-napari = "cellpose_napari:napari.yaml"
+
 [tool.setuptools_scm]
-write_to = "cellpose_napari/_version.py"
+version_file = "cellpose_napari/_version.py"
+
+[tool.setuptools.packages.find]
+exclude = ["tests", "tests.*"]
+
+[tool.setuptools.package-data]
+cellpose_napari = ["napari.yaml"]
+
+[tool.tox]
+legacy_tox_ini = """
+[tox]
+envlist = py{39,310,311,312}-{linux,macos,windows}
+isolated_build = true
+toxworkdir = /tmp/.tox
+
+[gh-actions]
+python =
+    3.9: py39
+    3.10: py310
+    3.11: py311
+    3.12: py312
+
+[gh-actions:env]
+PLATFORM =
+    ubuntu-latest: linux
+    macos-latest: macos
+    windows-latest: windows
+
+[testenv]
+platform =
+    macos: darwin
+    linux: linux
+    windows: win32
+passenv =
+    CI
+    GITHUB_ACTIONS
+    DISPLAY
+    XAUTHORITY
+    NUMPY_EXPERIMENTAL_ARRAY_FUNCTION
+    PYVISTA_OFF_SCREEN
+extras =
+    testing
+commands = pytest -v --color=yes --cov=cellpose_napari --cov-report=xml
+"""
