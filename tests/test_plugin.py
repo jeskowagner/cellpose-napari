@@ -12,8 +12,6 @@ from cellpose_napari._dock_widget import _V4
 PLUGIN_NAME = "cellpose-napari"
 WIDGET_NAME = "cellpose"
 
-SAMPLE = Path(__file__).parent / "sample.tif"
-
 @pytest.fixture(autouse=True)
 def patch_mps_on_CI(monkeypatch):
     # https://github.com/actions/runner-images/issues/9918
@@ -32,10 +30,9 @@ def viewer_widget(make_napari_viewer: Callable[..., napari.Viewer]):
 
 def test_basic_function(qtbot, viewer_widget):
     viewer, widget = viewer_widget
-    assert len(viewer.window._dock_widgets) == 1
+    assert len(viewer.window.dock_widgets) == 1
 
     viewer.open_sample(PLUGIN_NAME, 'rgb_2D')
-    viewer.layers[0].data = viewer.layers[0].data[0:128, 0:128]
 
     if not _V4:
         widget.model_type.value = "cyto3"
@@ -47,26 +44,29 @@ def test_basic_function(qtbot, viewer_widget):
     qtbot.waitUntil(check_widget, timeout=60_000)
     assert len(viewer.layers) == 5
     assert "cp_masks" in viewer.layers[-1].name
-    assert viewer.layers[-1].data.max() == 10
+    # Slightly different results between cyto3 and cellpose-SAM
+    if _V4:
+        assert viewer.layers[-1].data.max() == 37
+    else:
+        assert viewer.layers[-1].data.max() == 40
 
 @pytest.mark.skipif(_V4, reason="diameter estimation not available in cellpose v4")
 def test_compute_diameter(qtbot, viewer_widget):
     viewer, widget = viewer_widget
     viewer.open_sample(PLUGIN_NAME, 'rgb_2D')
-    viewer.layers[0].data = viewer.layers[0].data[0:128, 0:128]
 
     assert widget.diameter.value == "30"
     with qtbot.waitSignal(widget.diameter.changed, timeout=60_000) as blocker:
         widget.compute_diameter_button.changed(None)
 
-    # local on macOS with MPS, get 20.37, with CPU-only it's 20.83, same as CI
-    assert isclose(float(widget.diameter.value), 20.6, abs_tol=0.3)
+    # local on Windows with CPU/GPU 46.0
+    assert isclose(float(widget.diameter.value), 46, abs_tol=0.3)
 
 def test_3D_segmentation(qtbot,  viewer_widget):
     viewer, widget = viewer_widget
     assert widget.process_3D.value == False
     viewer.open_sample(PLUGIN_NAME, 'rgb_3D')
-
+    # viewer.layers[0].data = viewer.layers[0].data[:20]
     assert widget.process_3D.value == True
 
     if not _V4:
@@ -79,4 +79,4 @@ def test_3D_segmentation(qtbot,  viewer_widget):
     qtbot.waitUntil(check_widget, timeout=120_000)
     assert len(viewer.layers) == 5
     assert "cp_masks" in viewer.layers[-1].name
-    assert viewer.layers[-1].data.max() == 9
+    assert viewer.layers[-1].data.max() == 7

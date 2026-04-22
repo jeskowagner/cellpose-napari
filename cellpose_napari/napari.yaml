@@ -8,10 +8,16 @@ contributions:
     - id: cellpose-napari.data.rgb_3D
       title: Generate RGB 3D sample
       python_name: cellpose_napari._sample_data:make_rgb_3d_sample
+    - id: cellpose-napari.data.rgb_2D
+      title: Generate RGB 2D sample
+      python_name: cellpose_napari._sample_data:make_rgb_2d_sample
   widgets:
     - command: cellpose-napari.widget_wrapper
       display_name: cellpose
   sample_data:
+    - display_name: Cells (2D+2Ch)
+      key: rgb_2D
+      command: cellpose-napari.data.rgb_2D
     - display_name: Cells (3D+2Ch)
       key: rgb_3D
       command: cellpose-napari.data.rgb_3D
