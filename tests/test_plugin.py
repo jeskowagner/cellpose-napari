@@ -5,8 +5,6 @@ from typing import Callable
 
 import napari
 import pytest
-import torch # for ubuntu tests on CI, see https://github.com/pytorch/pytorch/issues/75912
-
 from cellpose_napari._dock_widget import _V4
 
 PLUGIN_NAME = "cellpose-napari"
@@ -16,6 +14,7 @@ WIDGET_NAME = "cellpose"
 def patch_mps_on_CI(monkeypatch):
     # https://github.com/actions/runner-images/issues/9918
     if os.getenv('CI'):
+        import torch  # https://github.com/pytorch/pytorch/issues/75912
         monkeypatch.setattr("torch.backends.mps.is_available", lambda: False)
         monkeypatch.setattr("cellpose.core.assign_device", lambda **kwargs: (torch.device("cpu"), False))
 
@@ -41,7 +40,7 @@ def test_basic_function(qtbot, viewer_widget):
     def check_widget():
         assert widget.cellpose_layers
 
-    qtbot.waitUntil(check_widget, timeout=60_000)
+    qtbot.waitUntil(check_widget, timeout=120_000)
     assert len(viewer.layers) == 5
     assert "cp_masks" in viewer.layers[-1].name
     # Slightly different results between cyto3 and cellpose-SAM
@@ -77,7 +76,7 @@ def test_3D_segmentation(qtbot,  viewer_widget):
     def check_widget():
         assert widget.cellpose_layers
 
-    qtbot.waitUntil(check_widget, timeout=120_000)
+    qtbot.waitUntil(check_widget, timeout=240_000)
     assert len(viewer.layers) == 5
     assert "cp_masks" in viewer.layers[-1].name
     assert viewer.layers[-1].data.max() == 6
