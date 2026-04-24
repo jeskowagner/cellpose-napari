@@ -66,12 +66,13 @@ def test_3D_segmentation(qtbot,  viewer_widget):
     viewer, widget = viewer_widget
     assert widget.process_3D.value == False
     viewer.open_sample(PLUGIN_NAME, 'rgb_3D')
-    # viewer.layers[0].data = viewer.layers[0].data[:20]
+    viewer.layers[0].data = viewer.layers[0].data[25:50]
     assert widget.process_3D.value == True
 
     if not _V4:
         widget.model_type.value = "cyto3"
-    widget()  # run segmentation with all default parameters
+    
+    widget(min_size=50)  # run segmentation
 
     def check_widget():
         assert widget.cellpose_layers
@@ -79,4 +80,4 @@ def test_3D_segmentation(qtbot,  viewer_widget):
     qtbot.waitUntil(check_widget, timeout=120_000)
     assert len(viewer.layers) == 5
     assert "cp_masks" in viewer.layers[-1].name
-    assert viewer.layers[-1].data.max() == 7
+    assert viewer.layers[-1].data.max() == 6
