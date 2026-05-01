@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 from math import isclose
 from typing import Callable
 
@@ -11,12 +10,10 @@ PLUGIN_NAME = "cellpose-napari"
 WIDGET_NAME = "cellpose"
 
 @pytest.fixture(autouse=True)
-def patch_mps_on_CI(monkeypatch):
-    # https://github.com/actions/runner-images/issues/9918
+def force_cpu_on_CI(monkeypatch):
+    # https://github.com/pytorch/pytorch/issues/75912
     if os.getenv('CI'):
-        import torch  # https://github.com/pytorch/pytorch/issues/75912
-        monkeypatch.setattr("torch.backends.mps.is_available", lambda: False)
-        monkeypatch.setattr("cellpose.core.assign_device", lambda **kwargs: (torch.device("cpu"), False))
+        monkeypatch.setattr("cellpose.core.use_gpu", lambda *_, **__: False)
 
 
 @pytest.fixture
@@ -65,7 +62,7 @@ def test_3D_segmentation(qtbot,  viewer_widget):
     viewer, widget = viewer_widget
     assert widget.process_3D.value == False
     viewer.open_sample(PLUGIN_NAME, 'rgb_3D')
-    viewer.layers[0].data = viewer.layers[0].data[25:50]
+    viewer.layers[0].data = viewer.layers[0].data[35:42]
     assert widget.process_3D.value == True
 
     if not _V4:
