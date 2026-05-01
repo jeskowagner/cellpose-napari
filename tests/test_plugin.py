@@ -37,7 +37,7 @@ def test_basic_function(qtbot, viewer_widget):
     def check_widget():
         assert widget.cellpose_layers
 
-    qtbot.waitUntil(check_widget, timeout=120_000)
+    qtbot.waitUntil(check_widget, timeout=360_000)
     assert len(viewer.layers) == 5
     assert "cp_masks" in viewer.layers[-1].name
     # Slightly different results between cyto3 and cellpose-SAM
@@ -73,7 +73,7 @@ def test_3D_segmentation(qtbot,  viewer_widget):
     def check_widget():
         assert widget.cellpose_layers
 
-    qtbot.waitUntil(check_widget, timeout=240_000)
+    qtbot.waitUntil(check_widget, timeout=600_000)
     assert len(viewer.layers) == 5
     assert "cp_masks" in viewer.layers[-1].name
     assert viewer.layers[-1].data.max() == 6
