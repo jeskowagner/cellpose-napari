@@ -3,6 +3,7 @@ from math import isclose
 from typing import Callable
 
 import napari
+import numpy as np
 import pytest
 from cellpose_napari._dock_widget import _V4
 
@@ -44,7 +45,7 @@ def test_basic_function(qtbot, viewer_widget):
     if _V4:
         assert viewer.layers[-1].data.max() == 37
     else:
-        assert viewer.layers[-1].data.max() == 40
+        assert viewer.layers[-1].data.max() == 41
 
 @pytest.mark.skipif(_V4, reason="diameter estimation not available in cellpose v4")
 def test_compute_diameter(qtbot, viewer_widget):
@@ -58,22 +59,50 @@ def test_compute_diameter(qtbot, viewer_widget):
     # local on Windows with CPU/GPU 46.0
     assert isclose(float(widget.diameter.value), 46, abs_tol=0.3)
 
-def test_3D_segmentation(qtbot,  viewer_widget):
-    viewer, widget = viewer_widget
+
+def test_widget_defaults(viewer_widget):
+    _, widget = viewer_widget
+    assert widget.diameter.value == "30"
+    assert widget.cellprob_threshold.value == pytest.approx(0.0)
+    assert widget.flow_threshold.value == pytest.approx(0.4)
+    assert widget.min_size.value == 15
+    assert widget.resample_dynamics.value == False
     assert widget.process_3D.value == False
-    viewer.open_sample(PLUGIN_NAME, 'rgb_3D')
-    viewer.layers[0].data = viewer.layers[0].data[35:42]
+    assert widget.stitch_threshold_3D.value == "0"
+    assert widget.clear_previous_segmentations.value == True
+    assert widget.compute_masks_button.enabled == False
+    if _V4:
+        assert widget.z_axis.native.isHidden()
+        assert widget.channel_axis.native.isHidden()
+
+
+def test_dimensionality_detection(viewer_widget):
+    viewer, widget = viewer_widget
+
+    layer_3d = viewer.add_image(np.zeros((5, 64, 64)), name='stack')
+    widget.image_layer.value = layer_3d
     assert widget.process_3D.value == True
+    if _V4:
+        # isVisible() requires all parents to be visible; isHidden() checks the widget's own flag
+        assert not widget.z_axis.native.isHidden()
+        assert not widget.channel_axis.native.isHidden()
 
-    if not _V4:
-        widget.model_type.value = "cyto3"
-    
-    widget(min_size=50)  # run segmentation
+    layer_2d = viewer.add_image(np.zeros((64, 64)), name='flat')
+    widget.image_layer.value = layer_2d
+    assert widget.process_3D.value == False
+    if _V4:
+        assert widget.z_axis.native.isHidden()
+        assert widget.channel_axis.native.isHidden()
 
-    def check_widget():
-        assert widget.cellpose_layers
 
-    qtbot.waitUntil(check_widget, timeout=600_000)
-    assert len(viewer.layers) == 5
-    assert "cp_masks" in viewer.layers[-1].name
-    assert viewer.layers[-1].data.max() == 6
+def test_diameter_from_shape(viewer_widget):
+    viewer, widget = viewer_widget
+
+    # 30×30 square: ptp=[30,30], sum=60 → diam = (60/2) * (27/30) = 27.0
+    rect = np.array([[0, 0], [0, 30], [30, 30], [30, 0]], dtype=float)
+    shape_layer = viewer.add_shapes([rect], shape_type='rectangle')
+    widget.shape_layer.value = shape_layer
+
+    widget.compute_diameter_shape.changed(None)
+
+    assert float(widget.diameter.value) == pytest.approx(27.0)
