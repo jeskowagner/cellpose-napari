@@ -90,6 +90,8 @@ passenv =
     XAUTHORITY
     NUMPY_EXPERIMENTAL_ARRAY_FUNCTION
     PYVISTA_OFF_SCREEN
+setenv =
+    TORCHINDUCTOR_CACHE_DIR = {envtmpdir}/torchinductor
 extras =
     testing
 commands = pytest -v --color=yes --cov=cellpose_napari --cov-report=xml
