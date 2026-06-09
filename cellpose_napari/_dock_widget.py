@@ -41,7 +41,7 @@ def widget_wrapper():
     def run_cellpose(image, diameter, resample, cellprob_threshold, flow_threshold,
                      min_size, do_3D, stitch_threshold,
                      model_type=None, custom_model=None, channels=None, channel_axis=None,
-                     z_axis=None):
+                     z_axis=None, segment_2D_time=False):
         from cellpose import models
 
         if _V4:
@@ -80,6 +80,10 @@ def widget_wrapper():
 
         masks, flows_orig, _ = CP.eval(image, **eval_kwargs)
         del CP
+        if segment_2D_time:
+            # 2D+time keeps only the (T, Y, X) masks; flows are discarded, so skip the
+            # per-slice flow restructuring below (which assumes a 4-element flows list).
+            return masks, flows_orig
         if not do_3D and stitch_threshold == 0 and masks.ndim > 2:
             flows = [[flows_orig[0][i],
                       flows_orig[1][:, i],
@@ -147,6 +151,11 @@ def widget_wrapper():
         process_3D=dict(widget_type='CheckBox', text='process stack as 3D', value=False,
                         tooltip='use default 3D processing where flows in X, Y, and Z are computed '
                                 'and dynamics run in 3D to create masks'),
+        segment_2D_time=dict(widget_type='CheckBox', text='2D + time (segment each frame independently)',
+                             value=False,
+                             tooltip='segment each slice of a stack as an independent 2D image and return a '
+                                     'single labels stack (T, Y, X). Labels are NOT consistent across frames '
+                                     '(intended for downstream tracking, e.g. trackastra)'),
         stitch_threshold_3D=dict(widget_type='LineEdit', label='stitch threshold slices', value=0,
                                  tooltip='across time or Z, stitch together masks with IoU threshold of '
                                          '"stitch threshold" to create 3D segmentation'),
@@ -215,6 +224,7 @@ def widget_wrapper():
         compute_masks_button,
         resample_dynamics,
         process_3D,
+        segment_2D_time,
         z_axis,
         channel_axis,
         stitch_threshold_3D,
@@ -273,10 +283,26 @@ def widget_wrapper():
             ]
             widget.cellpose_layers.append(layers)
 
+        def _new_masks_only_layer(masks):
+            # 2D + time: masks come back as a list of independently-labelled 2D frames;
+            # stack them into a single (T, Y, X) labels layer so time can be scrubbed
+            # with the slider alongside the image. No outlines/flows/cellprob are produced.
+            masks = np.stack(masks, axis=0) if isinstance(masks, list) else masks
+            widget.masks_orig = masks
+            widget.iseg = '_' + '%03d' % len(widget.cellpose_layers)
+            physical_scale = image_layer.scale[-3:] if len(image_layer.scale) > 3 else image_layer.scale
+            layer = viewer.add_labels(masks, name=image_layer.name + '_cp_masks' + widget.iseg,
+                                      visible=True, scale=physical_scale)
+            widget.cellpose_layers.append([layer])
+
         def _new_segmentation(segmentation):
             masks, flows_orig = segmentation
             try:
-                if image_layer.ndim > 2 and not process_3D and not float(stitch_threshold_3D):
+                if segment_2D_time and image_layer.ndim > 2:
+                    _new_masks_only_layer(masks)
+                    # recompute-masks operates on retained flows, which this mode discards
+                    widget.compute_masks_button.enabled = False
+                elif image_layer.ndim > 2 and not process_3D and not float(stitch_threshold_3D):
                     for mask, flow_orig in zip(masks, flows_orig):
                         _new_layers(mask, flow_orig)
                 else:
@@ -286,7 +312,8 @@ def widget_wrapper():
                     layer.visible = False
                 viewer.layers[-1].visible = True
                 image_layer.visible = True
-                if not float(stitch_threshold_3D):
+                # recompute-masks needs stored flows, which 2D+time mode does not keep
+                if not float(stitch_threshold_3D) and not segment_2D_time:
                     widget.compute_masks_button.enabled = True
             except Exception as e:
                 logger.error(e)
@@ -331,6 +358,11 @@ def widget_wrapper():
             do_3D=(process_3D and float(stitch_threshold_3D) == 0 and image_layer.ndim > 2),
             stitch_threshold=float(stitch_threshold_3D) if image_layer.ndim > 2 else 0.0,
         )
+        if segment_2D_time and image_layer.ndim > 2:
+            # independent 2D segmentation per frame: no 3D dynamics, no cross-frame stitching
+            run_kwargs['do_3D'] = False
+            run_kwargs['stitch_threshold'] = 0.0
+            run_kwargs['segment_2D_time'] = True
         if _V4:
             if image_layer.ndim == 4 and not image_layer.rgb:
                 run_kwargs['z_axis'] = z_axis
@@ -419,6 +451,17 @@ def widget_wrapper():
 
     if widget.image_layer.value is not None:
         check_dims(widget.image_layer.value)
+
+    @widget.segment_2D_time.changed.connect
+    def _on_segment_2D_time(value):
+        # 2D+time and 3D processing are mutually exclusive
+        if value and widget.process_3D.value:
+            widget.process_3D.value = False
+
+    @widget.process_3D.changed.connect
+    def _on_process_3D(value):
+        if value and widget.segment_2D_time.value:
+            widget.segment_2D_time.value = False
 
     @widget.compute_masks_button.changed.connect
     def _compute_masks(e: Any):
