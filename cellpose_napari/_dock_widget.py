@@ -13,6 +13,25 @@ _V4 = int(_pkg_version('cellpose').split('.')[0]) >= 4
 
 cp_strings = ['_cp_masks_', '_cp_outlines_', '_cp_flows_', '_cp_cellprob_']
 
+
+DINOV3_URL = 'git+https://github.com/facebookresearch/dinov3'
+
+
+def _dinov3_status(pretrained_model):
+    """Can cellpose build a CPDINO network for this model? 'ok', 'missing' or 'stale'.
+    """
+    import importlib.util
+
+    if not str(pretrained_model).startswith('cpdino'):
+        return 'ok'
+
+    from cellpose import vit  # cellpose v4 only; v3 has no cpdino models to reach this
+
+    if hasattr(vit, 'dinov3_vitl16'):
+        return 'ok'
+    return 'missing' if importlib.util.find_spec('dinov3') is None else 'stale'
+
+
 if not _V4:
     _CP_models = ["cyto3", "cyto2", "cyto", "nuclei", "tissuenet_cp3",
                   "livecell_cp3", "yeast_PhC_cp3", "yeast_BF_cp3", "bact_phase_cp3",
@@ -28,6 +47,12 @@ def widget_wrapper():
     from napari.layers import Image, Shapes
     from magicgui import magicgui
     from napari.qt.threading import thread_worker
+    from napari.utils.notifications import show_error, show_info
+    if _V4:
+        # importing cellpose costs a few seconds (it pulls in torch), but the first
+        # segmentation would pay that anyway, and it keeps the model list in step
+        # with whatever cellpose is installed
+        from cellpose.models import MODEL_DIR, MODEL_NAMES
     try:
         from torch import no_grad
     except ImportError:
@@ -45,7 +70,8 @@ def widget_wrapper():
         from cellpose import models
 
         if _V4:
-            CP = models.CellposeModel(gpu=True)
+            pretrained_model = custom_model if model_type == 'custom' else model_type
+            CP = models.CellposeModel(gpu=True, pretrained_model=pretrained_model)
         elif model_type == 'custom':
             CP = models.CellposeModel(pretrained_model=custom_model, gpu=True)
         else:
@@ -99,6 +125,43 @@ def widget_wrapper():
             diam = np.around(diam, 2)
             del CP
             return diam
+
+    @thread_worker
+    def pip_install_dinov3():
+        import subprocess
+        import sys
+
+        done = subprocess.run([sys.executable, '-m', 'pip', 'install', DINOV3_URL],
+                              capture_output=True, text=True)
+        return done.returncode, (done.stderr or done.stdout)[-400:]
+
+    def offer_dinov3_install(model_type):
+        """Prompt to install DINOv3, which is not on PyPI and so cannot be a dependency."""
+        from qtpy.QtWidgets import QMessageBox
+
+        box = QMessageBox(
+            QMessageBox.Icon.Question, 'Install DINOv3?',
+            f'The {model_type} model needs the DINOv3 package, which is not on PyPI and '
+            f'so is not installed with cellpose-napari.\n\nInstall it now from\n{DINOV3_URL}\n\n'
+            'napari must be restarted afterwards.',
+            parent=widget.native)
+        install = box.addButton('Install', QMessageBox.ButtonRole.AcceptRole)
+        cancel = box.addButton('Cancel', QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(cancel)  # Enter should not install a package by accident
+        box.exec()
+        if box.clickedButton() is not install:
+            return
+        show_info('installing DINOv3, this may take a few minutes...')
+        install_worker = pip_install_dinov3()
+        install_worker.returned.connect(report_dinov3_install)
+        install_worker.start()
+
+    def report_dinov3_install(result):
+        returncode, output = result
+        if returncode == 0:
+            show_info('DINOv3 installed. restart napari to use the cpdino models.')
+        else:
+            show_error(f'installing DINOv3 failed: {output}')
 
     @thread_worker
     def compute_masks(masks_orig, flows_orig, cellprob_threshold, flow_threshold):
@@ -186,10 +249,14 @@ def widget_wrapper():
                     widget_type='ComboBox', label='channel axis', choices=_channel_axis_3d_choices,
                     value=-1, visible=False,
                     tooltip='which axis represents channels; "none" treats all axes as spatial (ZYX)')
-        # Hidden stubs so the shared function signature stays valid under V4
         _mgui_kwargs.update(
-            model_type=dict(widget_type='ComboBox', visible=False, choices=[''], value='', label='model type'),
-            custom_model=dict(widget_type='FileEdit', visible=False, label='custom model path'),
+            model_type=dict(widget_type='ComboBox', label='model type',
+                            choices=[*MODEL_NAMES, 'custom'], value=MODEL_NAMES[0],
+                            tooltip='built-in cellpose model to segment with, or <em>custom</em> '
+                                    'to load your own model from a file'),
+            custom_model=dict(widget_type='FileEdit', label='custom model path: ',
+                              tooltip='if model type is custom, specify file path to it here'),
+            # Hidden stubs so the shared function signature stays valid under V4
             main_channel=dict(widget_type='ComboBox', visible=False, choices=[0], value=0,
                               label='channel to segment'),
             optional_nuclear_channel=dict(widget_type='ComboBox', visible=False, choices=[0], value=0,
@@ -223,6 +290,19 @@ def widget_wrapper():
 
         if not hasattr(widget, 'cellpose_layers'):
             widget.cellpose_layers = []
+
+        if model_type == 'custom' and not custom_model.resolve().is_file():
+            show_error('model type is "custom" but no custom model file is selected')
+            return
+        if _V4:
+            dinov3 = _dinov3_status(model_type)
+            if dinov3 == 'missing':
+                offer_dinov3_install(model_type)
+                return
+            if dinov3 == 'stale':
+                show_error(f'the {model_type} model needs DINOv3, which is installed but '
+                           'arrived after cellpose was loaded. restart napari and try again.')
+                return
 
         if clear_previous_segmentations:
             layer_names = [layer.name for layer in viewer.layers]
@@ -332,6 +412,10 @@ def widget_wrapper():
             stitch_threshold=float(stitch_threshold_3D) if image_layer.ndim > 2 else 0.0,
         )
         if _V4:
+            run_kwargs.update(
+                model_type=model_type,
+                custom_model=str(custom_model.resolve()),
+            )
             if image_layer.ndim == 4 and not image_layer.rgb:
                 run_kwargs['z_axis'] = z_axis
                 run_kwargs['channel_axis'] = _channel_axis
@@ -347,6 +431,10 @@ def widget_wrapper():
                 channels=[max(0, main_channel), max(0, optional_nuclear_channel)],
                 channel_axis=widget._channel_axis,
             )
+
+        if _V4 and model_type in MODEL_NAMES and not (MODEL_DIR / model_type).exists():
+            show_info(f'downloading the {model_type} model weights: this is a large '
+                      'one-time download, and segmentation starts once it finishes')
 
         cp_worker = run_cellpose(**run_kwargs)
         cp_worker.returned.connect(_new_segmentation)

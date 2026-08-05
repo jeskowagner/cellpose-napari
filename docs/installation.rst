@@ -47,7 +47,7 @@ If you receive the error: ``ImportError: _arpack DLL load failed``, then try uni
    pip uninstall scipy
    pip install scipy
 
-If you are having issues with the graphical interface, make sure you have **python 3.7** and not python 3.8 installed.
+If you are having issues with the graphical interface, make sure you are on **python 3.11 or newer**, which is what napari requires.
 
 If you are on Yosemite Mac OS or earlier, PyQt doesn't work and you won't be able
 to use the graphical interface for cellpose. More recent versions of Mac

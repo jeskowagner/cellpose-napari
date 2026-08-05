@@ -31,9 +31,10 @@ def test_basic_function(qtbot, viewer_widget):
 
     viewer.open_sample(PLUGIN_NAME, 'rgb_2D')
 
-    if not _V4:
-        widget.model_type.value = "cyto3"
-    widget()  # run segmentation with all default parameters
+    # pin the model: the mask counts asserted below are model-specific, and which
+    # built-in model cellpose defaults to changes between releases
+    widget.model_type.value = "cyto3" if not _V4 else "cpsam"
+    widget()  # run segmentation with all other parameters left at their defaults
 
     def check_widget():
         assert widget.cellpose_layers
